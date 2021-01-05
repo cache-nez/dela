@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"go.dedis.ch/dela"
@@ -96,6 +97,22 @@ type Relay interface {
 type parent struct {
 	relay Relay
 	table router.RoutingTable
+}
+
+type copyContext struct {
+	context.Context
+}
+
+func (c copyContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (c copyContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (c copyContext) Err() error {
+	return nil
 }
 
 // session is a participant to a stream protocol which has a parent gateway that
@@ -230,14 +247,20 @@ func (s *session) RecvPacket(from mino.Address, p *ptypes.Packet) (*ptypes.Ack, 
 	}
 
 	s.parentsLock.RLock()
-	defer s.parentsLock.RUnlock()
+	parents := make([]*parent, len(s.parents))
+	i := 0
+	for _, parent := range s.parents {
+		parents[i] = &parent
+		i++
+	}
+	s.parentsLock.RUnlock()
 
 	// Try to send the packet to each parent until one works.
-	for _, parent := range s.parents {
+	for _, parent := range parents {
 		s.traffic.LogRecv(parent.relay.Stream().Context(), from, pkt)
 
 		errs := make(chan error, len(pkt.GetDestination()))
-		sent := s.sendPacket(parent, pkt, errs)
+		sent := s.sendPacket(*parent, pkt, errs)
 		close(errs)
 
 		if sent {
@@ -276,12 +299,18 @@ func (s *session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		}
 
 		s.parentsLock.RLock()
-		defer s.parentsLock.RUnlock()
-
+		parents := make([]*parent, len(s.parents))
+		i := 0
 		for _, parent := range s.parents {
+			parents[i] = &parent
+			i++
+		}
+		s.parentsLock.RUnlock()
+
+		for _, parent := range parents {
 			packet := parent.table.Make(s.me, addrs, data)
 
-			sent := s.sendPacket(parent, packet, errs)
+			sent := s.sendPacket(*parent, packet, errs)
 			if sent {
 				return
 			}
@@ -372,7 +401,11 @@ func (s *session) sendTo(p parent, to mino.Address, pkt router.Packet, errs chan
 		}
 	}
 
-	ctx := p.relay.Stream().Context()
+	// Refer #170. Removing this because there's a chance that we're using
+	// a parent that is not valid anymore. We do however need to copy all the
+	// values stored in the context
+	// ctx := p.relay.Stream().Context()
+	ctx := copyContext{p.relay.Stream().Context()}
 
 	s.traffic.LogSend(ctx, relay.GetDistantAddress(), pkt)
 
@@ -428,7 +461,12 @@ func (s *session) setupRelay(p parent, addr mino.Address) (Relay, error) {
 	md := s.md.Copy()
 	md.Set(HandshakeKey, string(hs))
 
-	ctx := metadata.NewOutgoingContext(p.relay.Stream().Context(), md)
+	// Refer #170. Removing this because there's a chance that we're using
+	// a parent that is not valid anymore. We do however need to copy all the
+	// values stored in the context
+	// ctx := metadata.NewOutgoingContext(p.relay.Stream().Context(), md)
+	ctxCopy := copyContext{p.relay.Stream().Context()}
+	ctx := metadata.NewOutgoingContext(ctxCopy, md)
 
 	cl := ptypes.NewOverlayClient(conn)
 
