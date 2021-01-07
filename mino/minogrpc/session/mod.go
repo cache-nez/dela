@@ -246,6 +246,9 @@ func (s *session) RecvPacket(from mino.Address, p *ptypes.Packet) (*ptypes.Ack, 
 		return nil, xerrors.Errorf("packet malformed: %v", err)
 	}
 
+	dela.Logger.Info().Msgf("Forwarding {%s}, previous hop: %s, source: %s, "+
+		"destination: %s", pkt.GetMessage(), from, pkt.GetSource(), pkt.GetDestination())
+
 	s.parentsLock.RLock()
 	parents := make([]*parent, len(s.parents))
 	i := 0
@@ -280,6 +283,7 @@ func (s *session) RecvPacket(from mino.Address, p *ptypes.Packet) (*ptypes.Ack, 
 // Send implements mino.Sender. It sends the message to the provided addresses
 // through the relays or the parent.
 func (s *session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
+	dela.Logger.Info().Msgf("sending %s to %s", msg, addrs)
 	errs := make(chan error, len(addrs)+1)
 
 	for i, addr := range addrs {
@@ -362,6 +366,10 @@ func (s *session) sendPacket(p parent, pkt router.Packet, errs chan error) bool 
 
 	routes, voids := p.table.Forward(pkt)
 	for addr, void := range voids {
+		dela.Logger.Warn().Stringer("from",
+			pkt.GetSource()).Msgf("Failed to route {%s} to %s, " +
+				"no next hops at %s", pkt.GetMessage(), pkt.GetDestination(),
+				s.me.String())
 		errs <- xerrors.Errorf("no route to %v: %v", addr, void.Error)
 	}
 
@@ -413,7 +421,13 @@ func (s *session) sendTo(p parent, to mino.Address, pkt router.Packet, errs chan
 	if to == nil && err != nil {
 		// The parent relay is unavailable which means the session will
 		// eventually close.
-		s.logger.Warn().Err(err).Msg("parent is closing")
+		s.logger.Warn().Err(err).Msgf("parent %s is closing",
+			p.relay.GetDistantAddress().String())
+		dela.Logger.Warn().Stringer("from",
+			pkt.GetSource()).Msgf("Failed to route {%s} to %s, " +
+			"routed to parent %s at %s, but parent is unavailable",
+			pkt.GetMessage(), pkt.GetDestination(),
+			p.relay.GetDistantAddress().String(), s.me.String())
 
 		code := status.Code(xerrors.Unwrap(err))
 
@@ -422,7 +436,8 @@ func (s *session) sendTo(p parent, to mino.Address, pkt router.Packet, errs chan
 		return
 	}
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("relay failed to send")
+		s.logger.Warn().Err(err).Stringer("to", to).Stringer("distantAddr",
+			relay.GetDistantAddress()).Msg("relay failed to send")
 
 		// Try to send the packet through a different route.
 		s.onFailure(p, relay.GetDistantAddress(), pkt, errs)
@@ -544,8 +559,10 @@ func (s *session) setupRelay(p parent, addr mino.Address) (Relay, error) {
 }
 
 func (s *session) onFailure(p parent, gateway mino.Address, pkt router.Packet, errs chan error) {
+	dela.Logger.Trace().Stringer("gateway", gateway).Msg("called onFailure for")
 	err := p.table.OnFailure(gateway)
 	if err != nil {
+		dela.Logger.Debug().Msgf("OnFailure returned an error: %v", err)
 		errs <- xerrors.Errorf("no route to %v: %v", gateway, err)
 		return
 	}
