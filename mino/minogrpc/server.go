@@ -674,6 +674,7 @@ func (mgr *connManager) Acquire(to mino.Address) (grpc.ClientConnInterface, erro
 		}),
 	)
 	if err != nil {
+		dela.Logger.Info().Msgf("Failed to connect %s: %v", to.String(), err)
 		return nil, xerrors.Errorf("failed to dial: %v", err)
 	}
 

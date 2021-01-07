@@ -246,6 +246,9 @@ func (s *session) RecvPacket(from mino.Address, p *ptypes.Packet) (*ptypes.Ack, 
 		return nil, xerrors.Errorf("packet malformed: %v", err)
 	}
 
+	dela.Logger.Info().Msgf("Forwarding {%s}, previous hop: %s, source: %s, " +
+		"destination: %s", pkt.GetMessage(), from, pkt.GetSource(), pkt.GetDestination())
+
 	s.parentsLock.RLock()
 	parents := make([]*parent, len(s.parents))
 	i := 0
@@ -280,6 +283,7 @@ func (s *session) RecvPacket(from mino.Address, p *ptypes.Packet) (*ptypes.Ack, 
 // Send implements mino.Sender. It sends the message to the provided addresses
 // through the relays or the parent.
 func (s *session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
+	dela.Logger.Info().Msgf("sending %s to %s", msg, addrs)
 	errs := make(chan error, len(addrs)+1)
 
 	for i, addr := range addrs {
