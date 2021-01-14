@@ -240,6 +240,29 @@ func (s *session) RecvPacket(from mino.Address, p *ptypes.Packet) (*ptypes.Ack, 
 	dela.Logger.Info().Msgf("Forwarding {%s}, previous hop: %s, source: %s, "+
 		"destination: %s", pkt.GetMessage(), from, pkt.GetSource(), pkt.GetDestination())
 
+	// A message to the client side of orchestrator
+	if len(pkt.GetDestination()) == 1 {
+		dest := pkt.GetDestination()[0]
+		if newWrapAddress(dest).Equal(s.me) && !dest.Equal(s.me) {
+			errs := make(chan error, len(pkt.GetDestination()))
+			sent := s.sendPacket(s.parents[dest], pkt, errs)
+			close(errs)
+
+			if sent {
+				ack := &ptypes.Ack{}
+
+				for err := range errs {
+					ack.Errors = append(ack.Errors, err.Error())
+				}
+
+				return ack, nil
+			} else {
+				return nil, xerrors.New(
+					"failed to send the packet to client side of orchestrator")
+			}
+		}
+	}
+
 	s.parentsLock.RLock()
 	parents := make([]*parent, len(s.parents))
 	i := 0
