@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
+	"google.golang.org/grpc/keepalive"
 	"io"
 	"net"
 	"regexp"
@@ -166,7 +167,11 @@ func NewMinogrpc(addr net.Addr, router router.Router, opts ...Option) (*Minogrpc
 	}
 
 	creds := credentials.NewServerTLSFromCert(o.GetCertificate())
-	server := grpc.NewServer(grpc.Creds(creds))
+	server := grpc.NewServer(grpc.Creds(creds),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true}),
+	)
 
 	m := &Minogrpc{
 		overlay:   o,
