@@ -202,18 +202,9 @@ func (s *session) Listen(relay Relay, table router.RoutingTable, ready chan stru
 	close(ready)
 
 	for {
-		_, err := relay.Stream().Recv()
-		code := status.Code(err)
-		if err == io.EOF || code != codes.Unknown {
-			s.logger.Trace().Stringer("code", code).Msg("session closing")
-
-			return
-		}
-		if err != nil {
-			s.errs <- xerrors.Errorf("stream closed unexpectedly: %v", err)
-
-			return
-		}
+		// for the purposes of simulation,
+		// do not stop the session when parent relay is closed
+		_, _ = relay.Stream().Recv()
 	}
 }
 
