@@ -25,7 +25,6 @@ import (
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 var (
@@ -166,8 +165,7 @@ func NewMinogrpc(addr net.Addr, router router.Router, opts ...Option) (*Minogrpc
 		return nil, xerrors.Errorf("overlay: %v", err)
 	}
 
-	creds := credentials.NewServerTLSFromCert(o.GetCertificate())
-	server := grpc.NewServer(grpc.Creds(creds),
+	server := grpc.NewServer(
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             5 * time.Second,
 			PermitWithoutStream: true}),

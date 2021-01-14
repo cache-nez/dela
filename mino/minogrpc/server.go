@@ -30,7 +30,6 @@ import (
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -637,38 +636,14 @@ func (mgr *connManager) Acquire(to mino.Address) (grpc.ClientConnInterface, erro
 		return conn, nil
 	}
 
-	clientPubCert, err := mgr.certs.Load(to)
-	if err != nil {
-		return nil, xerrors.Errorf("while loading distant cert: %v", err)
-	}
-	if clientPubCert == nil {
-		return nil, xerrors.Errorf("certificate for '%v' not found", to)
-	}
-
-	pool := x509.NewCertPool()
-	pool.AddCert(clientPubCert.Leaf)
-
-	me, err := mgr.certs.Load(mgr.myAddr)
-	if err != nil {
-		return nil, xerrors.Errorf("while loading own cert: %v", err)
-	}
-	if me == nil {
-		return nil, xerrors.Errorf("couldn't find server '%v' certificate", mgr.myAddr)
-	}
-
-	ta := credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{*me},
-		RootCAs:      pool,
-	})
-
 	netAddr, ok := to.(session.Address)
 	if !ok {
 		return nil, xerrors.Errorf("invalid address type '%T'", to)
 	}
 
 	// Connecting using TLS and the distant server certificate as the root.
-	conn, err = grpc.Dial(netAddr.GetDialAddress(),
-		grpc.WithTransportCredentials(ta),
+	conn, err := grpc.Dial(netAddr.GetDialAddress(),
+		grpc.WithInsecure(),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			Backoff:           backoff.DefaultConfig,
 			MinConnectTimeout: defaultMinConnectTimeout,
